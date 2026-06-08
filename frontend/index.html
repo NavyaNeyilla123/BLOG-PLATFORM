@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevBlog Platform - Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+</head>
+<body>
+    <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0076d6; padding-bottom: 10px; margin-bottom: 20px;">
+        <h1 style="color: #0076d6; margin: 0;">💻 DevBlog</h1>
+        <div>
+            <span id="userGreeting" style="font-weight: bold; font-size: 1.1em;"></span>
+            <button id="logoutBtn" style="margin-left: 15px; background-color: #ff4d4d; color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer;">Logout</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="createPostSection" style="display:none; background-color: var(--background-alt); padding: 20px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 30px;">
+            <h3 style="margin-top: 0;">✍️ Share an Insight</h3>
+            <form id="postForm">
+                <label for="postTitle" style="font-weight: bold;">Article Title</label>
+                <input type="text" id="postTitle" placeholder="Give your post a catchy title..." required style="width: 100%;">
+                
+                <label for="postContent" style="font-weight: bold; margin-top: 10px; display: block;">Content Body</label>
+                <textarea id="postContent" rows="5" placeholder="What are you working on or learning today? Write it here..." required style="width: 100%; resize: vertical;"></textarea>
+                
+                <button type="submit" style="margin-top: 15px; background-color: #0076d6; color: white;">Publish Article</button>
+            </form>
+        </section>
+
+        <section id="authPrompt" style="background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 6px; margin-bottom: 25px; border: 1px solid #ffeeba;">
+            <p style="margin: 0;">💡 Want to share your thoughts or join the discussion? <a href="login.html" style="font-weight: bold;">Login</a> or <a href="register.html" style="font-weight: bold;">Create an account</a> to create original posts and leave comments.</p>
+        </section>
+
+        <h2 style="border-bottom: 1px solid var(--border); padding-bottom: 5px;">📋 Recent Feed</h2>
+        <div id="postsFeedContainer">Checking for new articles...</div>
+    </main>
+
+    <script type="module">
+        import { apiRequest } from './js/api.js';
+
+        const token = localStorage.getItem('token');
+        const username = localStorage.getItem('username');
+
+        // Manage state-driven layout variations
+        if (token && username) {
+            document.getElementById('userGreeting').innerText = `👋 Welcome, ${username}!`;
+            document.getElementById('createPostSection').style.display = 'block';
+            document.getElementById('authPrompt').style.display = 'none';
+        } else {
+            document.getElementById('logoutBtn').style.display = 'none';
+        }
+
+        // Clean user logouts
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.clear();
+            window.location.reload();
+        });
+
+        // Intercept new entry submissions
+        const postForm = document.getElementById('postForm');
+        if (postForm) {
+            postForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const title = document.getElementById('postTitle').value;
+                const content = document.getElementById('postContent').value;
+                try {
+                    await apiRequest('/posts', {
+                        method: 'POST',
+                        body: JSON.stringify({ title, content })
+                    });
+                    postForm.reset();
+                    // Instantly repaint the UI feed
+                    loadFeed();
+                } catch (err) { console.error('Error creating post:', err); }
+            });
+        }
+
+        // Read and paint full blog timeline
+        async function loadFeed() {
+            const feedContainer = document.getElementById('postsFeedContainer');
+            try {
+                const posts = await apiRequest('/posts', { method: 'GET' });
+                if (!posts || posts.length === 0) {
+                    feedContainer.innerHTML = '<p style="text-align: center; color: #666; font-style: italic; margin-top: 30px;">The feed is currently empty. Be the very first to publish a story!</p>';
+                    return;
+                }
+                
+                feedContainer.innerHTML = '';
+                for (const post of posts) {
+                    const postCard = document.createElement('article');
+                    postCard.style.padding = '20px';
+                    postCard.style.marginBottom = '25px';
+                    postCard.style.borderRadius = '8px';
+                    postCard.style.border = '1px solid var(--border)';
+                    postCard.style.backgroundColor = 'var(--background)';
+
+                    const isAuthor = token && localStorage.getItem('username') === post.author_name;
+
+                    postCard.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <h3 style="margin: 0 0 5px 0; color: #0076d6;">${post.title}</h3>
+                            ${isAuthor ? `<button class="delete-btn" data-id="${post.id}" style="background-color:#ff4d4d; color:white; padding: 2px 8px; font-size: 0.85em;">Delete</button>` : ''}
+                        </div>
+                        <small style="color: #666;">By <b style="color: var(--text-main);">${post.author_name}</b> • ${new Date(post.created_at).toLocaleDateString()}</small>
+                        <p style="white-space: pre-wrap; margin-top:15px; font-size: 1.05em; line-height: 1.6;">${post.content}</p>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background-color: var(--background-alt); border-radius: 6px;">
+                            <h4 style="margin: 0 0 10px 0; font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.5px; color: #555;">💬 Discussions</h4>
+                            <div class="comments-list" id="comments-${post.id}" style="margin-bottom: 15px;">Loading conversation thread...</div>
+                            
+                            <form class="comment-form" data-id="${post.id}" style="display:flex; gap:10px; margin: 0;">
+                                <input type="text" placeholder="Your Name" class="comment-author" value="${username || ''}" ${username ? 'disabled' : 'required'} style="width:25%; margin:0;">
+                                <input type="text" placeholder="Add to the conversation..." class="comment-text" required style="width:60%; margin:0;">
+                                <button type="submit" style="width:15%; margin:0; padding: 4px; background-color: var(--button-base);">Comment</button>
+                            </form>
+                        </div>
+                    `;
+                    feedContainer.appendChild(postCard);
+                    loadComments(post.id);
+                }
+
+                // Setup dynamic event listeners for post deletions
+                document.querySelectorAll('.delete-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        if (confirm('Are you absolute certain you want to drop this post permanently?')) {
+                            const id = e.target.getAttribute('data-id');
+                            try {
+                                await apiRequest(`/posts/${id}`, { method: 'DELETE' });
+                                loadFeed();
+                            } catch (err) { console.error('Deletion failure:', err); }
+                        }
+                    });
+                });
+
+                // Setup comment pipeline interceptors
+                document.querySelectorAll('.comment-form').forEach(form => {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const postId = form.getAttribute('data-id');
+                        const authorName = form.querySelector('.comment-author').value;
+                        const text = form.querySelector('.comment-text').value;
+                        try {
+                            await apiRequest('/comments', {
+                                method: 'POST',
+                                body: JSON.stringify({ postId, authorName, text })
+                            });
+                            form.querySelector('.comment-text').value = '';
+                            loadComments(postId);
+                        } catch (err) { console.error('Comment posting failed:', err); }
+                    });
+                });
+
+            } catch (err) {
+                feedContainer.innerHTML = '<p style="color:red; text-align: center;">⚠️ Failed to synchronize engine database feed.</p>';
+            }
+        }
+
+        // Pull active commentary rows
+        async function loadComments(postId) {
+            const container = document.getElementById(`comments-${postId}`);
+            try {
+                const comments = await apiRequest(`/comments/${postId}`, { method: 'GET' });
+                if (!comments || comments.length === 0) {
+                    container.innerHTML = '<p style="font-style:italic; font-size:0.9em; color: #777; margin: 0;">No responses recorded yet.</p>';
+                    return;
+                }
+                container.innerHTML = comments.map(c => `
+                    <div style="font-size:0.95em; padding: 6px 0; border-bottom: 1px dashed var(--border);">
+                        <strong style="color: #0076d6;">${c.author_name}:</strong> <span style="color: var(--text-main);">${c.text}</span>
+                    </div>
+                `).join('');
+            } catch (err) {
+                container.innerHTML = '';
+            }
+        }
+
+        // Run full setup initialize
+        loadFeed();
+    </script>
+</body>
+</html>
